@@ -1,0 +1,8 @@
+nba_api
+pandas
+pyarrow
+torch
+scikit-learn
+flask
+flask-socketio
+numpypy
