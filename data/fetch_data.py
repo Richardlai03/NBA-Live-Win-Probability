@@ -33,6 +33,7 @@ def fetch_all_seasons() -> pd.DataFrame:
 
     combined = pd.concat(all_dfs, ignore_index=True)
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    combined["GAME_ID"] = combined["GAME_ID"].astype(str).str.zfill(10)
     combined.to_csv(OUTPUT_PATH, index=False)
 
     print(f"\nSaved {len(combined)} rows → {OUTPUT_PATH}")
