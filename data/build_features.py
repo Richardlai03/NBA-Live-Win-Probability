@@ -15,9 +15,13 @@ def parse_clock(clock_str: str, period: int) -> float:
     minutes = int(match.group(1))
     seconds = float(match.group(2))
     clock_s = minutes * 60 + seconds
-    periods_remaining = max(0, 4 - period)
-    return periods_remaining * 720 + clock_s
 
+    if period <= 4:
+        periods_remaining = 4 - period
+        return periods_remaining * 720 + clock_s
+    else:
+        ot_periods_remaining = max(0, period - 4 - 1)
+        return ot_periods_remaining * 300 + clock_s
 
 def build_outcome_map(games: pd.DataFrame) -> dict:
     outcomes = {}
@@ -93,7 +97,8 @@ def main():
     pbp   = pd.read_parquet(INPUT_PBP)
     games = pd.read_csv(INPUT_GAMES)
     games["GAME_ID"] = games["GAME_ID"].astype(str).str.zfill(10)
-
+    pbp   = pbp[pbp["GAME_ID"].str[2].isin(["2", "4"])]
+    games = games[games["GAME_ID"].str[2].isin(["2", "4"])]
     outcomes  = build_outcome_map(games)
     home_map  = build_home_map(games)
 
