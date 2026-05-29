@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import GroupShuffleSplit
+from torch.utils.data import WeightedRandomSampler
+
 
 sys.path.append(os.path.dirname(__file__))
 from net import WinProbNet, FEATURE_NAMES
@@ -15,10 +17,10 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.pt")
 MEAN_PATH  = os.path.join(os.path.dirname(__file__), "feature_mean.npy")
 STD_PATH   = os.path.join(os.path.dirname(__file__), "feature_std.npy")
 
-EPOCHS     = 50
+EPOCHS = 50
 BATCH_SIZE = 4096
-LR         = 1e-3
-SEED       = 42
+LR = 3e-4
+SEED = 42
 
 
 def load_data():
@@ -27,7 +29,8 @@ def load_data():
     X      = df[FEATURE_NAMES].values.astype(np.float32)
     y      = df["win"].values.astype(np.float32)
     groups = df["game_id"].values
-    return X, y, groups
+    periods = df["period"].values
+    return X, y, groups, periods
 
 
 def main():
@@ -35,7 +38,7 @@ def main():
     np.random.seed(SEED)
 
     print("Loading data...")
-    X, y, groups = load_data()
+    X, y, groups, periods = load_data()
     print(f"  {len(X)} rows | {X.shape[1]} features | home win rate: {y.mean():.3f}")
 
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=SEED)
@@ -53,12 +56,20 @@ def main():
     np.save(STD_PATH,  std)
     print(f"  Train: {len(X_train)} rows | Val: {len(X_val)} rows")
 
+    period_values  = periods[train_idx]
+    sample_weights = np.where(period_values >= 4, 3.0, np.where(period_values == 3, 2.0, 1.0)).astype(np.float32)
+
     train_ds = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
-    val_ds   = TensorDataset(torch.from_numpy(X_val),   torch.from_numpy(y_val))
-
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=2)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
-
+    sampler  = WeightedRandomSampler(
+        weights=torch.from_numpy(sample_weights),
+        num_samples=len(sample_weights),
+        replacement=True
+    )
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler, num_workers=2)
+    val_loader   = DataLoader(
+        TensorDataset(torch.from_numpy(X_val), torch.from_numpy(y_val)),
+        batch_size=BATCH_SIZE, shuffle=False, num_workers=2
+    )
     model     = WinProbNet()
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     criterion = nn.BCEWithLogitsLoss()
@@ -86,8 +97,8 @@ def main():
                 preds     = model(xb)
                 val_loss += criterion(preds, yb).item() * len(xb)
                 correct  += ((preds > 0.5) == yb.bool()).sum().item()
-        val_loss /= len(val_ds)
-        val_acc   = correct / len(val_ds)
+        val_loss /= len(X_val)
+        val_acc   = correct / len(X_val)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss

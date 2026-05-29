@@ -82,6 +82,8 @@ def process_game(game: pd.DataFrame, home_tricode: str, win: int) -> list:
             "period":          period,
             "time_remaining_s": time_remaining,
             "score_diff":      score_diff,
+            "lead_leverage":    score_diff / np.sqrt(time_remaining + 1),  
+            "total_score":      score_home + score_away,              
             "home_fouls":      home_fouls,
             "away_fouls":      away_fouls,
             "foul_diff":       home_fouls - away_fouls,
