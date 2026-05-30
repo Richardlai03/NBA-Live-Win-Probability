@@ -9,7 +9,7 @@ from flask_socketio import SocketIO, emit
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../model"))
 from net import WinProbNet, FEATURE_NAMES
-from live_feed import get_current_game_state, get_live_game_ids
+from live_feed import get_current_game_state, get_live_game_ids, get_historical_game_state
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "../model/model.pt")
 MEAN_PATH  = os.path.join(os.path.dirname(__file__), "../model/feature_mean.npy")
@@ -45,6 +45,11 @@ def poll_game(game_id: str):
     print(f"[{game_id}] Polling started")
     while True:
         state = get_current_game_state(game_id)
+
+        # replay historical game
+        if state is None:
+            from live_feed import get_historical_game_state
+            state = get_historical_game_state(game_id)
 
         if state is None:
             # API error: wait and retry

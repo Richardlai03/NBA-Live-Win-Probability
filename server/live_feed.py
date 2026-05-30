@@ -57,5 +57,34 @@ def get_live_game_ids() -> list[str]:
             if g["gameStatus"] == 2  
         ]
     except Exception as e:
-        print(f"Could not fetch live games: {e}")
         return []
+
+def get_historical_game_state(game_id: str, event_index: int = -1) -> dict | None:
+    try:
+        from nba_api.stats.endpoints import playbyplayv3, boxscoretraditionalv3
+        pbp    = playbyplayv3.PlayByPlayV3(game_id=game_id).get_data_frames()[0]
+        scoring = pbp[pbp["actionType"].isin(["Made Shot", "Free Throw"])].reset_index(drop=True)
+
+        if len(scoring) == 0:
+            return None
+
+        row = scoring.iloc[event_index]
+        period     = int(row["period"])
+        home_score = int(row["scoreHome"]) if row["scoreHome"] != "" else 0
+        away_score = int(row["scoreAway"]) if row["scoreAway"] != "" else 0
+        score_diff = home_score - away_score
+        time_remaining = _parse_clock(row["clock"], period)
+        lead_leverage  = score_diff / ((time_remaining ** 0.5) + 1)
+
+        return {
+            "lead_leverage":    lead_leverage,
+            "score_diff":       score_diff,
+            "time_remaining_s": time_remaining,
+            "period":           period,
+            "last_play":        str(row["description"]),
+            "home_score":       home_score,
+            "away_score":       away_score,
+        }
+    except Exception as e:
+        print(f"historical feed error for {game_id}: {e}")
+        return None

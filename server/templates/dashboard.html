@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NBA Win Probability</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #080810;
+      color: #e8e6de;
+      font-family: 'Courier New', monospace;
+      min-height: 100vh;
+      padding: 32px 24px;
+    }
+
+    /* ── Layout ── */
+    .container { max-width: 900px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    header h1 { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.35; }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      opacity: 0.4;
+    }
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #3b7dd8;
+    }
+    .dot.live { animation: pulse 1.8s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    /* ── Connect panel ── */
+    #connect-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      min-height: 60vh;
+    }
+    #connect-panel h2 { font-size: 13px; letter-spacing: 0.12em; opacity: 0.5; }
+
+    .live-games-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+    .game-pill {
+      background: #13131f;
+      border: 1px solid #2a2a3e;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .game-pill:hover { border-color: #3b7dd8; }
+
+    .manual-input {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .manual-input input {
+      background: #13131f;
+      border: 1px solid #2a2a3e;
+      color: #e8e6de;
+      padding: 9px 13px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 12px;
+      width: 220px;
+      outline: none;
+    }
+    .manual-input input:focus { border-color: #3b7dd8; }
+    .manual-input button, .btn {
+      background: #3b7dd8;
+      color: #fff;
+      border: none;
+      padding: 9px 18px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .manual-input button:hover, .btn:hover { background: #2d6cc4; }
+    .hint { font-size: 11px; opacity: 0.3; }
+
+    /* ── Dashboard ── */
+    #dashboard { display: none; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .card {
+      background: #0f0f1a;
+      border: 1px solid #1c1c2e;
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .card-label {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      opacity: 0.3;
+      margin-bottom: 14px;
+    }
+    .full-width { grid-column: 1 / -1; }
+
+    /* ── Probability bar ── */
+    .team-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      opacity: 0.45;
+      margin-bottom: 8px;
+      letter-spacing: 0.06em;
+    }
+    .bar-track {
+      position: relative;
+      height: 44px;
+      background: #1a1a2a;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .bar-home {
+      position: absolute; left: 0; top: 0; height: 100%;
+      background: #3b7dd8;
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+    }
+    .bar-away {
+      position: absolute; right: 0; top: 0; height: 100%;
+      background: #c04845;
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+    }
+    .bar-divider {
+      position: absolute;
+      left: 50%; top: 0;
+      width: 1px; height: 100%;
+      background: #080810;
+      transform: translateX(-50%);
+    }
+    .pct-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    .pct-home { font-size: 28px; font-weight: bold; color: #3b7dd8; }
+    .pct-away { font-size: 28px; font-weight: bold; color: #c04845; }
+
+    .last-play {
+      font-size: 11px;
+      opacity: 0.35;
+      margin-top: 14px;
+      min-height: 16px;
+      line-height: 1.5;
+    }
+
+    /* ── Score card ── */
+    .score-display {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      margin: 8px 0;
+    }
+    .score-num { font-size: 48px; font-weight: bold; letter-spacing: -0.02em; }
+    .score-home { color: #3b7dd8; }
+    .score-away { color: #c04845; }
+    .score-sep { font-size: 28px; opacity: 0.2; }
+    .game-info {
+      text-align: center;
+      font-size: 11px;
+      opacity: 0.35;
+      margin-top: 6px;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Chart ── */
+    .chart-wrap canvas { max-height: 200px; }
+
+    /* ── Back button ── */
+    .back-row { margin-bottom: 20px; }
+    .back-btn {
+      background: none;
+      border: 1px solid #2a2a3e;
+      color: #e8e6de;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      opacity: 0.5;
+      transition: opacity 0.15s;
+    }
+    .back-btn:hover { opacity: 1; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>NBA Win Probability</h1>
+    <div class="status">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">—</span>
+    </div>
+  </header>
+
+  <!-- Connect panel -->
+  <div id="connect-panel">
+    <h2>Select a game</h2>
+
+    <div class="live-games-list" id="live-games-list">
+      <span style="font-size:11px;opacity:0.3">Checking for live games...</span>
+    </div>
+
+    <div class="manual-input">
+      <input id="game-id-input" type="text" placeholder="or enter game ID manually" />
+      <button onclick="startGame(document.getElementById('game-id-input').value)">Track</button>
+    </div>
+    <span class="hint">Game IDs available at stats.nba.com or in games_raw.csv</span>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <div class="back-row">
+      <button class="back-btn" onclick="showConnect()">← Back</button>
+    </div>
+    <div class="grid">
+
+      <!-- Win probability -->
+      <div class="card">
+        <div class="card-label">Win probability</div>
+        <div class="team-row">
+          <span id="home-label">HOME</span>
+          <span id="away-label">AWAY</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-home" id="bar-home" style="width:50%"></div>
+          <div class="bar-away" id="bar-away" style="width:50%"></div>
+          <div class="bar-divider"></div>
+        </div>
+        <div class="pct-row">
+          <span class="pct-home" id="home-pct">50%</span>
+          <span class="pct-away" id="away-pct">50%</span>
+        </div>
+        <div class="last-play" id="last-play">Waiting for play data...</div>
+      </div>
+
+      <!-- Score -->
+      <div class="card">
+        <div class="card-label">Score</div>
+        <div class="score-display">
+          <span class="score-num score-home" id="home-score">0</span>
+          <span class="score-sep">—</span>
+          <span class="score-num score-away" id="away-score">0</span>
+        </div>
+        <div class="game-info" id="game-info">—</div>
+      </div>
+
+      <!-- Chart -->
+      <div class="card full-width chart-wrap">
+        <div class="card-label">Home win probability — live</div>
+        <canvas id="prob-chart"></canvas>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const socket = io();
+  let chart = null;
+  const probHistory = [];
+  const timeLabels  = [];
+
+  // ── On load: fetch live games ──
+  fetch("/live_games")
+    .then(r => r.json())
+    .then(ids => {
+      const container = document.getElementById("live-games-list");
+      if (ids.length === 0) {
+        container.innerHTML = '<span style="font-size:11px;opacity:0.3">No live games right now</span>';
+        return;
+      }
+      container.innerHTML = "";
+      ids.forEach(id => {
+        const pill = document.createElement("div");
+        pill.className = "game-pill";
+        pill.textContent = id;
+        pill.onclick = () => startGame(id);
+        container.appendChild(pill);
+      });
+    })
+    .catch(() => {
+      document.getElementById("live-games-list").innerHTML =
+        '<span style="font-size:11px;opacity:0.3">Could not load live games</span>';
+    });
+
+  // ── Start tracking a game ──
+  function startGame(gameId) {
+    gameId = gameId.trim();
+    if (!gameId) return;
+
+    document.getElementById("connect-panel").style.display = "none";
+    document.getElementById("dashboard").style.display = "block";
+
+    setStatus("Connecting...", false);
+    initChart();
+    socket.emit("start_game", { game_id: gameId });
+  }
+
+  // ── Back to connect panel ──
+  function showConnect() {
+    document.getElementById("dashboard").style.display = "none";
+    document.getElementById("connect-panel").style.display = "flex";
+    setStatus("—", false);
+    probHistory.length = 0;
+    timeLabels.length  = 0;
+    if (chart) { chart.destroy(); chart = null; }
+  }
+
+  // ── Receive update from server ──
+  socket.on("update", data => {
+    const homeProb = data.home_prob;
+    const awayProb = data.away_prob;
+
+    // Bar
+    document.getElementById("bar-home").style.width = (homeProb * 100) + "%";
+    document.getElementById("bar-away").style.width = (awayProb * 100) + "%";
+    document.getElementById("home-pct").textContent  = Math.round(homeProb * 100) + "%";
+    document.getElementById("away-pct").textContent  = Math.round(awayProb * 100) + "%";
+
+    // Score
+    document.getElementById("home-score").textContent = data.home_score;
+    document.getElementById("away-score").textContent = data.away_score;
+
+    // Game info
+    const mins = Math.floor((data.time_remaining_s % 720) / 60);
+    const secs = Math.floor(data.time_remaining_s % 60);
+    const clock = `${mins}:${String(secs).padStart(2, "0")}`;
+    document.getElementById("game-info").textContent =
+      `Q${data.period}  ·  ${clock} remaining`;
+
+    // Last play
+    document.getElementById("last-play").textContent = data.last_play || "";
+
+    // Status
+    setStatus("Live · updated just now", true);
+
+    // Chart
+    timeLabels.push(`Q${data.period} ${clock}`);
+    probHistory.push(homeProb);
+    if (probHistory.length > 300) { probHistory.shift(); timeLabels.shift(); }
+    chart.update();
+  });
+
+  // ── Chart init ──
+  function initChart() {
+    const ctx = document.getElementById("prob-chart").getContext("2d");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: timeLabels,
+        datasets: [{
+          data: probHistory,
+          borderColor: "#3b7dd8",
+          backgroundColor: "rgba(59,125,216,0.07)",
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.35,
+        }]
+      },
+      options: {
+        responsive: true,
+        animation: { duration: 600 },
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: 0, max: 1,
+            ticks: {
+              color: "rgba(232,230,222,0.25)",
+              callback: v => Math.round(v * 100) + "%"
+            },
+            grid: { color: "rgba(255,255,255,0.04)" },
+          },
+          x: {
+            ticks: {
+              color: "rgba(232,230,222,0.25)",
+              maxTicksLimit: 10,
+              maxRotation: 0,
+            },
+            grid: { color: "rgba(255,255,255,0.04)" },
+          }
+        }
+      }
+    });
+  }
+
+  // ── Status helper ──
+  function setStatus(text, live) {
+    document.getElementById("status-text").textContent = text;
+    const dot = document.getElementById("status-dot");
+    dot.classList.toggle("live", live);
+  }
+</script>
+</body>
+</html>
